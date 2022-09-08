@@ -174,7 +174,8 @@ NOTES:
  *   Rating: 1
  */
 int bitAnd(int x, int y) {
-  return 2;
+  // return 2;
+  return ~(~x | ~y);
 }
 /* 
  * bitConditional - x ? y : z for each bit respectively
@@ -184,7 +185,8 @@ int bitAnd(int x, int y) {
  *   Rating: 1
  */
 int bitConditional(int x, int y, int z) {
-  return 2;
+  // return 2;
+  return (x&y) | (~x&z);
 }
 /* 
  * byteSwap - swaps the nth byte and the mth byte
@@ -196,7 +198,14 @@ int bitConditional(int x, int y, int z) {
  *  Rating: 2
  */
 int byteSwap(int x, int n, int m) {
-    return 2;
+  // return 2;
+  int n1 = x>>(n<<3) & 0xFF;
+  int m1 = x>>(m<<3) & 0xFF;
+  x = x & ~(0xFF<<(n<<3));
+  x = x | m1<<(n<<3);
+  x = x & ~(0xFF<<(m<<3));
+  x = x | n1<<(m<<3);
+  return x;
 }
 /* 
  * logicalShift - shift x to the right by n, using a logical shift
@@ -207,7 +216,8 @@ int byteSwap(int x, int n, int m) {
  *   Rating: 3 
  */
 int logicalShift(int x, int n) {
-  return 2;
+  // return 2;
+  return (x>>n) & ~((1<<31)>>n<<1);
 }
 /* 
  * cleanConsecutive1 - change any consecutive 1 to zeros in the binary form of x.
@@ -222,6 +232,7 @@ int logicalShift(int x, int n) {
  */
 int cleanConsecutive1(int x){
     return 2;
+    
 }
 /* 
  * countTrailingZero - return the number of consecutive 0 from the lowest bit of 
@@ -248,7 +259,10 @@ int countTrailingZero(int x){
  *   Rating: 2
  */
 int divpwr2(int x, int n) {
-    return 2;
+    // return 2;
+    int sign = x>>31;
+    int bias = (1<<n) + ~0;
+    return (x + (sign & bias))>>n;
 }
 /* 
  * oneMoreThan - return 1 if y is one more than x, and 0 otherwise
@@ -258,7 +272,9 @@ int divpwr2(int x, int n) {
  *   Rating: 2
  */
 int oneMoreThan(int x, int y) {
-  return 2;
+  // return 2;
+  x = x + 1;
+  return !(x^y);
 }
 /*
  * satMul3 - multiplies by 3, saturating to Tmin or Tmax if overflow
