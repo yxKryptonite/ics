@@ -217,7 +217,8 @@ int byteSwap(int x, int n, int m) {
  */
 int logicalShift(int x, int n) {
   // return 2;
-  return (x>>n) & ~((1<<31)>>n<<1);
+  int tmp = 1<<31;
+  return (x>>n) & ~(tmp>>n<<1);
 }
 /* 
  * cleanConsecutive1 - change any consecutive 1 to zeros in the binary form of x.
@@ -231,8 +232,10 @@ int logicalShift(int x, int n) {
  *   Rating: 4
  */
 int cleanConsecutive1(int x){
-    return 2;
-    
+    // return 2;
+    int mask1 = (x<<1) & x;
+    int mask2 = ((x>>1) & x) & ~(1<<31);
+    return x ^ (mask1 | mask2);
 }
 /* 
  * countTrailingZero - return the number of consecutive 0 from the lowest bit of 
@@ -242,13 +245,33 @@ int cleanConsecutive1(int x){
  *   YOU MAY USE BIG CONST IN THIS PROBLEM, LIKE 0xFFFF0000
  *   Examples countTrailingZero(0x0) = 32, countTrailingZero(0x1) = 0,
  *            countTrailingZero(0xFFFF0000) = 16,
- *            countTrailingZero(0xFFFFFFF0) = 8,
+ *            countTrailingZero(0xFFFFFFF0) = 4,
  *   Legal ops: ! ~ & ^ | + << >>
  *   Max ops: 40
  *   Rating: 4
  */
 int countTrailingZero(int x){
-    return 2;
+    // return 2;
+    int a = 0;
+    int b = (!(x&0xffff)) << 4;
+    a = a + b;
+    x = x >> b;
+    b = (!(x&0xff)) << 3;
+    a = a + b;
+    x = x >> b;
+    b = (!(x&0xf)) << 2;
+    a = a + b;
+    x = x >> b;
+    b = (!(x&0x3)) << 1;
+    a = a + b;
+    x = x >> b;
+    b = (!(x&0x1));
+    a = a + b;
+    x = x >> b;
+    b = (!(x&0x1));
+    a = a + b;
+    x = x >> b;
+    return a;
 }
 /* 
  * divpwr2 - Compute x/(2^n), for 0 <= n <= 30
@@ -273,8 +296,7 @@ int divpwr2(int x, int n) {
  */
 int oneMoreThan(int x, int y) {
   // return 2;
-  x = x + 1;
-  return !(x^y);
+  return (!(~x+y)) & ~(((y^x) & (y^(y+~x)))>>31);
 }
 /*
  * satMul3 - multiplies by 3, saturating to Tmin or Tmax if overflow
@@ -288,7 +310,13 @@ int oneMoreThan(int x, int y) {
  *  Rating: 3
  */
 int satMul3(int x) {
-    return 2;
+    // return 2;
+    int tmin = 1<<31;
+    int tmax = ~tmin;
+    int x3 = x + x + x;
+    int a = ((x3 ^ x)>>31) | (((x<<1)^x)>>31);
+    int b = x >> 31;
+    return (x3 & ~a) | (a & b & tmin)| (a & ~b & tmax);
 }
 /* 
  * subOK - Determine if can compute x-y without overflow
@@ -299,7 +327,11 @@ int satMul3(int x) {
  *   Rating: 3
  */
 int subOK(int x, int y) {
-  return 2;
+  // return 2;
+  int a = x>>31;
+  int b = y>>31;
+  int c = (x + (~y + 1))>>31;
+  return !((a^b) & (a^c));
 }
 /* 
  * isLessOrEqual - if x <= y  then return 1, else return 0 
@@ -309,7 +341,11 @@ int subOK(int x, int y) {
  *   Rating: 3
  */
 int isLessOrEqual(int x, int y) {
-  return 2;
+  // return 2;
+  int sub = (y + (~x + 1))>>31;
+  int a = x>>31;
+  int b = y>>31;
+  return (a & !b) | (!(a^b) & !sub);
 }
 /*
  * trueThreeFourths - multiplies by 3/4 rounding toward 0,
@@ -323,7 +359,11 @@ int isLessOrEqual(int x, int y) {
  */
 int trueThreeFourths(int x)
 {
-  return 2;
+  // return 2;
+  int a = x >> 31;
+  int b = x & 3;
+  x = (x >> 2) + ((x >> 2) << 1);
+  return x + ((b + (b << 1) + (a & 3)) >> 2);
 }
 /* 
  * float_twice - Return bit-level equivalent of expression 2*f for
