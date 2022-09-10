@@ -199,12 +199,12 @@ int bitConditional(int x, int y, int z) {
  */
 int byteSwap(int x, int n, int m) {
   // return 2;
-  int n1 = x>>(n<<3) & 0xFF;
-  int m1 = x>>(m<<3) & 0xFF;
+  int n1 = x>>(n<<3) & 0xFF; // mask the nth byte
+  int m1 = x>>(m<<3) & 0xFF; // mask the mth byte
   x = x & ~(0xFF<<(n<<3));
-  x = x | m1<<(n<<3);
+  x = x | m1<<(n<<3); // get the m
   x = x & ~(0xFF<<(m<<3));
-  x = x | n1<<(m<<3);
+  x = x | n1<<(m<<3); // get the n
   return x;
 }
 /* 
@@ -217,8 +217,8 @@ int byteSwap(int x, int n, int m) {
  */
 int logicalShift(int x, int n) {
   // return 2;
-  int tmp = 1<<31;
-  return (x>>n) & ~(tmp>>n<<1);
+  int tmp = 1<<31; // 0x80000000
+  return (x>>n) & ~(tmp>>n<<1); // sign bit condition
 }
 /* 
  * cleanConsecutive1 - change any consecutive 1 to zeros in the binary form of x.
@@ -233,7 +233,9 @@ int logicalShift(int x, int n) {
  */
 int cleanConsecutive1(int x){
     // return 2;
+    // left mask
     int mask1 = (x<<1) & x;
+    // right mask (notice the sign bit)
     int mask2 = ((x>>1) & x) & ~(1<<31);
     return x ^ (mask1 | mask2);
 }
@@ -253,18 +255,24 @@ int cleanConsecutive1(int x){
 int countTrailingZero(int x){
     // return 2;
     int a = 0;
+    // 0x0000FFFF
+    // first 16 bits
     int b = (!(x&0xffff)) << 4;
     a = a + b;
     x = x >> b;
+    // first 8 bits
     b = (!(x&0xff)) << 3;
     a = a + b;
     x = x >> b;
+    // first 4 bits
     b = (!(x&0xf)) << 2;
     a = a + b;
     x = x >> b;
+    // first 2 bits
     b = (!(x&0x3)) << 1;
     a = a + b;
     x = x >> b;
+    // first bit
     b = (!(x&0x1));
     a = a + b;
     x = x >> b;
@@ -283,8 +291,11 @@ int countTrailingZero(int x){
  */
 int divpwr2(int x, int n) {
     // return 2;
+    // sign bit
     int sign = x>>31;
+    // 2^n - 1
     int bias = (1<<n) + ~0;
+    // if x < 0, add the bias to round toward zero
     return (x + (sign & bias))>>n;
 }
 /* 
@@ -296,6 +307,9 @@ int divpwr2(int x, int n) {
  */
 int oneMoreThan(int x, int y) {
   // return 2;
+  // y = x + 1 -> y - x = 1
+  // y - x = 1 -> y + ~x = 0
+  // make sure there is no overflow
   return (!(~x+y)) & ~(((y^x) & (y^(y+~x)))>>31);
 }
 /*
@@ -314,8 +328,10 @@ int satMul3(int x) {
     int tmin = 1<<31;
     int tmax = ~tmin;
     int x3 = x + x + x;
+    // overflow condition
     int a = ((x3 ^ x)>>31) | (((x<<1)^x)>>31);
     int b = x >> 31;
+    // if overflow, return tmin or tmax
     return (x3 & ~a) | (a & b & tmin)| (a & ~b & tmax);
 }
 /* 
@@ -345,6 +361,7 @@ int isLessOrEqual(int x, int y) {
   int sub = (y + (~x + 1))>>31;
   int a = x>>31;
   int b = y>>31;
+  // if x and y have different sign, return 1 if x < 0
   return (a & !b) | (!(a^b) & !sub);
 }
 /*
@@ -360,9 +377,12 @@ int isLessOrEqual(int x, int y) {
 int trueThreeFourths(int x)
 {
   // return 2;
+  // sign bit
   int a = x >> 31;
   int b = x & 3;
+  // not round
   x = (x >> 2) + ((x >> 2) << 1);
+  // add the bias
   return x + ((b + (b << 1) + (a & 3)) >> 2);
 }
 /* 
@@ -377,7 +397,24 @@ int trueThreeFourths(int x)
  *   Rating: 4
  */
 unsigned float_twice(unsigned uf) {
-  return 2;
+  // return 2;
+  int exp = (uf >> 23) & 0xFF;
+  // NaN or infinity
+  if (exp == 0xFF) {
+    return uf;
+  }
+  // not normalized
+  else if (exp == 0x0) {
+    return (uf << 1) | (uf & 0x80000000);
+  }
+  // normalized
+  // if not overflow
+  else if (exp^0xFE) {
+    return uf + (1 << 23);
+  }
+  // if overflow
+  else 
+    return uf & 0x80000000 | (0xff << 23);
 }
 /* 
  * float_i2f - Return bit-level equivalent of expression (float) x
@@ -389,7 +426,26 @@ unsigned float_twice(unsigned uf) {
  *   Rating: 4
  */
 unsigned float_i2f(int x) {
-  return 2;
+  // return 2;
+  unsigned sign =0, exp = 31, frac = 0, round = 0;
+  // if x is 0
+  if (x == 0) {
+    return x;
+  }
+  // if x is negative
+  if (x & 0x80000000) {
+    sign = 0x80000000;
+    x = ~x + 1;
+  }
+  // find the most significant bit
+  while(!(x & 0x80000000)) {
+    exp -= 1;
+    x = x << 1;
+  }
+  // find the fraction
+  round = (x & 0x000001ff) == 384 || (x & 0xff) > 128;
+  frac = ((x & 0x7fffffffu) >> 8) + round;
+  return sign + ((exp + 127) << 23) + frac;
 }
 /* 
  * float_f2i - Return bit-level equivalent of expression (int) f
@@ -404,7 +460,26 @@ unsigned float_i2f(int x) {
  *   Rating: 4
  */
 int float_f2i(unsigned uf) {
-  return 2;
+  // return 2;
+  int sign = uf >> 31;
+  int exp = (uf >> 23) & 0xFF;
+  int frac = uf & 0x7FFFFF;
+  int bias = 127;
+  int e = exp - bias;
+  // if e < 0, return 0
+  if (e < 0) {
+    return 0;
+  }
+  // if e >= 31, return 0x80000000
+  if (e >= 31) {
+    return 0x80000000;
+  }
+  frac = ((frac << 7) + 0x40000000) >> (30-e);
+  // if negative, return ~frac + 1
+  if (sign) {
+    return ~frac + 1;
+  }
+  return frac;
 }
 /* 
  * float_pwr2 - Return bit-level equivalent of the expression 2.0^x
@@ -420,5 +495,15 @@ int float_f2i(unsigned uf) {
  *   Rating: 4
  */
 unsigned float_pwr2(int x) {
-    return 2;
+    // return 2;
+    if (x > 127) {
+        return 0x7f800000;
+    }
+    if (x < -149) {
+        return 0;
+    }
+    if (x < -126) {
+      return 1 << (x + 149);
+    }
+    return (x + 127) << 23;
 }
