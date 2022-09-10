@@ -259,27 +259,27 @@ int countTrailingZero(int x){
     // first 16 bits
     int b = (!(x&0xffff)) << 4;
     a += b;
-    x = x >> b;
+    x >>= b;
     // first 8 bits
     b = (!(x&0xff)) << 3;
     a += b;
-    x = x >> b;
+    x >>= b;
     // first 4 bits
     b = (!(x&0xf)) << 2;
     a += b;
-    x = x >> b;
+    x >>= b;
     // first 2 bits
     b = (!(x&0x3)) << 1;
     a += b;
-    x = x >> b;
+    x >>= b;
     // first bit
     b = (!(x&0x1));
     a += b;
-    x = x >> b;
+    x >>= b;
     // repeat
     b = (!(x&0x1));
     a += b;
-    x = x >> b;
+    x >>= b;
     return a;
 }
 /* 
