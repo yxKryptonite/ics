@@ -1,2 +1,2 @@
 # ics
-Introduction to Computer System, Fall 2022
+Introduction to Computer Systems, Fall 2022
