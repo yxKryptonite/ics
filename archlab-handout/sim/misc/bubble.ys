@@ -1,0 +1,79 @@
+# Yuxuan Kuang, 2100013089
+# data: rdi
+# count=6: rsi
+# last: rbx
+# i: r8
+# 8: r14
+# comparison: r12, r13
+
+    .pos 0
+    irmovq stack, %rsp
+    call main
+    halt
+
+    .align 8
+
+array:
+    .quad 0xbca 
+    .quad 0xcba 
+    .quad 0xacb 
+    .quad 0xcab 
+    .quad 0xabc 
+    .quad 0xbac
+
+main:
+    irmovq array, %rdi
+    irmovq $6, %rsi
+    irmovq $8, %r14
+    call bubble_sort
+    ret
+
+bubble_sort:
+    pushq %rbx
+    rrmovq %rdi, %rbx
+    addq %rdi, %rbx
+    subq %r14, %rbx
+    rrmovq %rbx, %r12
+    subq %rdi, %r12
+    jg loop1
+
+loop1:
+    rrmovq %rdi, %r8
+    rrmovq %r8, %r12
+    subq %rbx, %r12
+    jl loop2
+    subq %r14, %rbx
+    rrmovq %rbx, %r12
+    subq %rdi, %r12
+    jg loop1 
+    jmp done
+
+loop2:
+    mrmovq 8(%r8), %r12
+    mrmovq (%r8), %r13
+    subq %r12, %r13
+    jg inner
+    subq %r14, %rbx
+    rrmovq %r8, %r12
+    subq %rbx, %r12
+    jl loop2
+    jmp loop1
+
+inner:
+    mrmovq 8(%r8), %r9
+    mrmovq (%r8), %r10
+    rmmovq %r9, (%r8)
+    rmmovq %r10, 8(%r8) 
+    addq %r14, %r8
+    subq %r14, %rbx
+    rrmovq %r8, %r12
+    subq %rbx, %r12
+    jl loop2
+    jmp loop1
+
+done:
+    popq %rbx
+    ret
+
+    .pos 0x200
+stack:
