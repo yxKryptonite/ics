@@ -3,8 +3,8 @@
 # count=6: rsi
 # last: rbx
 # i: r8
-# 8: r14
-# comparison: r12, r13
+# 8: r9
+# temp: r10, ...
 
     .pos 0
     irmovq stack, %rsp
@@ -24,52 +24,44 @@ array:
 main:
     irmovq array, %rdi
     irmovq $6, %rsi
-    irmovq $8, %r14
+    irmovq $8, %r9
+    irmovq $1, %r10
     call bubble_sort
     ret
 
 bubble_sort:
     pushq %rbx
     rrmovq %rdi, %rbx
-    addq %rdi, %rbx
-    subq %r14, %rbx
-    rrmovq %rbx, %r12
-    subq %rdi, %r12
-    jg loop1
+    irmovq $40, %r11
+    addq %r11, %rbx
 
 loop1:
-    rrmovq %rdi, %r8
-    rrmovq %r8, %r12
+    rrmovq %rdi, %r12
     subq %rbx, %r12
-    jl loop2
-    subq %r14, %rbx
-    rrmovq %rbx, %r12
-    subq %rdi, %r12
-    jg loop1 
-    jmp done
+    jge done
+    rrmovq %rdi, %r8
 
 loop2:
-    mrmovq 8(%r8), %r12
-    mrmovq (%r8), %r13
-    subq %r12, %r13
-    jg inner
-    subq %r14, %rbx
-    rrmovq %r8, %r12
-    subq %rbx, %r12
-    jl loop2
+    rrmovq %rbx, %r13
+    subq %r8, %r13
+    jle buffer1
+    mrmovq 8(%r8), %r10
+    mrmovq (%r8), %r11
+    rrmovq %r11, %r12
+    subq %r10, %r11
+    jle buffer2
+    rrmovq %r10, %r13
+    rmmovq %r12, 8(%r8)
+    rmmovq %r13, (%r8)
+    jmp buffer2
+    
+buffer1:
+    subq %r9, %rbx
     jmp loop1
 
-inner:
-    mrmovq 8(%r8), %r9
-    mrmovq (%r8), %r10
-    rmmovq %r9, (%r8)
-    rmmovq %r10, 8(%r8) 
-    addq %r14, %r8
-    subq %r14, %rbx
-    rrmovq %r8, %r12
-    subq %rbx, %r12
-    jl loop2
-    jmp loop1
+buffer2:
+    addq %r9, %r8
+    jmp loop2
 
 done:
     popq %rbx

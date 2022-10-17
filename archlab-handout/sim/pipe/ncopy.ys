@@ -4,9 +4,22 @@
 # Return the number of positive words (>0) contained in src.
 #
 # Include your name and ID here.
-#
+# Name: Yuxuan Kuang
+# ID: 2100013089
 # Describe how and why you modified the baseline code.
-#
+# First, I add the instruction `iaddq` in the HCL file to replace `addq` because `iaddq` is faster.
+# Then I unroll the loop into 10 iterations to decrease the unnecessary updates (loop variables).
+# Then, for the remaining number, I construct a trinary search tree to set jump.
+# The criterion of jumping is that we should jump to a branch with the most cases.
+# Below is the way I design the trinary tree.
+# 		  ROOT
+# 	    /  |   \
+#      l   3     r
+#     / \      / | \
+#    1   2   rl  6  rr
+#           / \    / | \
+#          4   5  7  8  9
+# tmp: %r8, %r9, ...
 ##################################################################
 # Do not modify this portion
 # Function prologue.
@@ -14,25 +27,192 @@
 ncopy:
 
 ##################################################################
-# You can modify this portion
-	# Loop header
-	xorq %rax,%rax		# count = 0;
-	andq %rdx,%rdx		# len <= 0?
-	jle Done		# if so, goto Done:
+	xorq %rax, %rax
+	iaddq $-10, %rdx
+	jl root
+	
+	iter1:
+		mrmovq (%rdi), %r8
+		mrmovq 8(%rdi), %r9
+		rmmovq %r8, (%rsi)
+		andq %r8, %r8
+		jle iter2
+		iaddq $1, %rax
 
-Loop:	mrmovq (%rdi), %r10	# read val from src...
-	rmmovq %r10, (%rsi)	# ...and store it to dst
-	andq %r10, %r10		# val <= 0?
-	jle Npos		# if so, goto Npos:
-	irmovq $1, %r10
-	addq %r10, %rax		# count++
-Npos:	irmovq $1, %r10
-	subq %r10, %rdx		# len--
-	irmovq $8, %r10
-	addq %r10, %rdi		# src++
-	addq %r10, %rsi		# dst++
-	andq %rdx,%rdx		# len > 0?
-	jg Loop			# if so, goto Loop:
+	iter2:
+		mrmovq 16(%rdi), %r8
+		rmmovq %r9, 8(%rsi)
+		andq %r9, %r9
+		jle iter3
+		iaddq $1, %rax
+
+	iter3:
+		mrmovq 24(%rdi), %r9
+		rmmovq %r8, 16(%rsi)
+		andq %r8, %r8
+		jle iter4
+		iaddq $1, %rax
+
+	iter4:
+		mrmovq 32(%rdi), %r8
+		rmmovq %r9, 24(%rsi)
+		andq %r9, %r9
+		jle iter5
+		iaddq $1, %rax
+	
+	iter5:
+		mrmovq 40(%rdi), %r9
+		rmmovq %r8, 32(%rsi)
+		andq %r8, %r8
+		jle iter6
+		iaddq $1, %rax
+
+	iter6:
+		mrmovq 48(%rdi), %r8
+		rmmovq %r9, 40(%rsi)
+		andq %r9, %r9
+		jle iter7
+		iaddq $1, %rax
+
+	iter7:
+		mrmovq 56(%rdi), %r9
+		rmmovq %r8, 48(%rsi)
+		andq %r8, %r8
+		jle iter8
+		iaddq $1, %rax
+
+	iter8:
+		mrmovq 64(%rdi), %r8
+		rmmovq %r9, 56(%rsi)
+		andq %r9, %r9
+		jle iter9
+		iaddq $1, %rax
+
+	iter9:
+		mrmovq 72(%rdi), %r9
+		rmmovq %r8, 64(%rsi)
+		andq %r8, %r8
+		jle iter10
+		iaddq $1, %rax
+
+	iter10:
+		# mrmovq 80(%rdi), %r8
+		rmmovq %r9, 72(%rsi)
+		andq %r9, %r9
+		jle loop
+		iaddq $1, %rax
+
+	loop:
+		iaddq $80, %rdi
+		iaddq $80, %rsi
+		iaddq $-10, %rdx
+		jge iter1
+
+	root:
+		iaddq $7, %rdx
+		jl left_child
+		jg right_child
+		je middle_child_r3
+
+	left_child:
+		iaddq $2, %rdx
+		je r1
+		iaddq $-1, %rdx
+		je r2
+		ret
+
+	right_child:
+		iaddq $-3, %rdx
+		jg rr
+		je r6
+		iaddq $1, %rdx
+		je r5
+		jmp r4
+	
+	rr:
+		iaddq $-2, %rdx
+		je r8
+		jl r7
+
+	r9:
+		mrmovq 64(%rdi), %r8
+		rmmovq %r8, 64(%rsi)
+		andq %r8, %r8
+
+	r8:
+		mrmovq 56(%rdi), %r8
+		jle r8_
+		iaddq $1, %rax
+
+	r8_:
+		rmmovq %r8, 56(%rsi)
+		andq %r8, %r8
+
+	r7:
+		mrmovq 48(%rdi), %r8
+		jle r7_
+		iaddq $1, %rax
+
+	r7_:
+		rmmovq %r8, 48(%rsi)
+		andq %r8, %r8
+
+	r6:
+		mrmovq 40(%rdi), %r8
+		jle r6_
+		iaddq $1, %rax
+
+	r6_:
+		rmmovq %r8, 40(%rsi)
+		andq %r8, %r8
+
+	r5:
+		mrmovq 32(%rdi), %r8
+		jle r5_
+		iaddq $1, %rax
+
+	r5_:
+		rmmovq %r8, 32(%rsi)
+		andq %r8, %r8
+
+	r4:
+		mrmovq 24(%rdi), %r8
+		jle r4_
+		iaddq $1, %rax
+
+	r4_:
+		rmmovq %r8, 24(%rsi)
+		andq %r8, %r8
+
+	middle_child_r3:
+		mrmovq 16(%rdi), %r8
+		jle r3_
+		iaddq $1, %rax
+
+	r3_:
+		rmmovq %r8, 16(%rsi)
+		andq %r8, %r8
+
+	r2:
+		mrmovq 8(%rdi), %r8
+		jle r2_
+		iaddq $1, %rax
+
+	r2_:
+		rmmovq %r8, 8(%rsi)
+		andq %r8, %r8
+
+	r1:
+		mrmovq (%rdi), %r8
+		jle r1_
+		iaddq $1, %rax
+
+	r1_:
+		rmmovq %r8, (%rsi)
+		andq %r8, %r8
+		jle Done
+		iaddq $1, %rax
+
 ##################################################################
 # Do not modify the following section of code
 # Function epilogue.

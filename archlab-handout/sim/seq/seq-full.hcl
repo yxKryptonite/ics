@@ -1,4 +1,38 @@
 #/* $begin seq-all-hcl */
+# Name: Yuxuan Kuang
+# ID: 2100013089
+# IADDQ V, rB
+# Fetch
+# 	icode:ifun <- M1[PC]
+#	rA:rB <- M1[PC+1]
+#	valC <- M8[PC+2]
+#	valP <- PC+10
+# Decode
+#	valB <- R[rB]
+# Execute
+#	valE <- valB+valC
+#	Set CC
+# Memory
+# Write Back
+#	R[rB] <- valE
+# PC Update
+#	PC <- valP
+# -------------------------
+# JM rB, V
+# Fetch
+#	icode:ifun <- M1[PC]
+#	rA:rB <- M1[PC+1]
+#	valC <- M8[PC+2]
+#	valP <- PC+10
+# Decode
+#	valB <- R[rB]
+# Execute
+#	valE <- valB+valC
+# Memory
+#	valM <- M8[valE]
+# Write Back
+# PC Update
+#	PC <- valM
 ####################################################################
 #  HCL Description of Control for Single Cycle Y86-64 Processor SEQ   #
 #  Copyright (C) Randal E. Bryant, David R. O'Hallaron, 2010       #
@@ -108,16 +142,16 @@ word ifun = [
 
 bool instr_valid = icode in 
 	{ INOP, IHALT, IRRMOVQ, IIRMOVQ, IRMMOVQ, IMRMOVQ,
-	       IOPQ, IJXX, ICALL, IRET, IPUSHQ, IPOPQ };
+	       IOPQ, IJXX, ICALL, IRET, IPUSHQ, IPOPQ, IIADDQ, IJM };
 
 # Does fetched instruction require a regid byte?
 bool need_regids =
 	icode in { IRRMOVQ, IOPQ, IPUSHQ, IPOPQ, 
-		     IIRMOVQ, IRMMOVQ, IMRMOVQ };
+		     IIRMOVQ, IRMMOVQ, IMRMOVQ, IIADDQ, IJM };
 
 # Does fetched instruction require a constant word?
 bool need_valC =
-	icode in { IIRMOVQ, IRMMOVQ, IMRMOVQ, IJXX, ICALL };
+	icode in { IIRMOVQ, IRMMOVQ, IMRMOVQ, IJXX, ICALL, IIADDQ, IJM };
 
 ################ Decode Stage    ###################################
 
@@ -130,7 +164,7 @@ word srcA = [
 
 ## What register should be used as the B source?
 word srcB = [
-	icode in { IOPQ, IRMMOVQ, IMRMOVQ  } : rB;
+	icode in { IOPQ, IRMMOVQ, IMRMOVQ, IIADDQ, IJM  } : rB;
 	icode in { IPUSHQ, IPOPQ, ICALL, IRET } : RRSP;
 	1 : RNONE;  # Don't need register
 ];
@@ -138,14 +172,14 @@ word srcB = [
 ## What register should be used as the E destination?
 word dstE = [
 	icode in { IRRMOVQ } && Cnd : rB;
-	icode in { IIRMOVQ, IOPQ} : rB;
+	icode in { IIRMOVQ, IOPQ, IIADDQ, IJM} : rB;
 	icode in { IPUSHQ, IPOPQ, ICALL, IRET } : RRSP;
 	1 : RNONE;  # Don't write any register
 ];
 
 ## What register should be used as the M destination?
 word dstM = [
-	icode in { IMRMOVQ, IPOPQ } : rA;
+	icode in { IMRMOVQ, IPOPQ, IJM } : rA;
 	1 : RNONE;  # Don't write any register
 ];
 
@@ -154,7 +188,7 @@ word dstM = [
 ## Select input A to ALU
 word aluA = [
 	icode in { IRRMOVQ, IOPQ } : valA;
-	icode in { IIRMOVQ, IRMMOVQ, IMRMOVQ } : valC;
+	icode in { IIRMOVQ, IRMMOVQ, IMRMOVQ, IIADDQ, IJM } : valC;
 	icode in { ICALL, IPUSHQ } : -8;
 	icode in { IRET, IPOPQ } : 8;
 	# Other instructions don't need ALU
@@ -163,7 +197,7 @@ word aluA = [
 ## Select input B to ALU
 word aluB = [
 	icode in { IRMMOVQ, IMRMOVQ, IOPQ, ICALL, 
-		      IPUSHQ, IRET, IPOPQ } : valB;
+		      IPUSHQ, IRET, IPOPQ, IIADDQ, IJM } : valB;
 	icode in { IRRMOVQ, IIRMOVQ } : 0;
 	# Other instructions don't need ALU
 ];
@@ -175,19 +209,19 @@ word alufun = [
 ];
 
 ## Should the condition codes be updated?
-bool set_cc = icode in { IOPQ };
+bool set_cc = icode in { IOPQ, IIADDQ };
 
 ################ Memory Stage    ###################################
 
 ## Set read control signal
-bool mem_read = icode in { IMRMOVQ, IPOPQ, IRET };
+bool mem_read = icode in { IMRMOVQ, IPOPQ, IRET, IJM };
 
 ## Set write control signal
 bool mem_write = icode in { IRMMOVQ, IPUSHQ, ICALL };
 
 ## Select memory address
 word mem_addr = [
-	icode in { IRMMOVQ, IPUSHQ, ICALL, IMRMOVQ } : valE;
+	icode in { IRMMOVQ, IPUSHQ, ICALL, IMRMOVQ, IJM } : valE;
 	icode in { IPOPQ, IRET } : valA;
 	# Other instructions don't need address
 ];
@@ -220,6 +254,7 @@ word new_pc = [
 	icode == IJXX && Cnd : valC;
 	# Completion of RET instruction.  Use value from stack
 	icode == IRET : valM;
+	icode == IJM : valM;
 	# Default: Use incremented PC
 	1 : valP;
 ];
