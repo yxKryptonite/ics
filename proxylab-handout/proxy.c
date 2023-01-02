@@ -13,51 +13,49 @@ static const char *prox_hdr = "Proxy-Connection: close\r\n";
 static const char *host_hdr_format = "Host: %s\r\n";
 static const char *requestlint_hdr_format = "GET %s HTTP/1.0\r\n";
 static const char *endof_hdr = "\r\n";
-
-static const char *connection_key = "Connection";
-static const char *user_agent_key= "User-Agent";
-static const char *proxy_connection_key = "Proxy-Connection";
-static const char *host_key = "Host";
+static const char *connection_key = "Connection:";
+static const char *user_agent_key= "User-Agent:";
+static const char *proxy_connection_key = "Proxy-Connection:";
+static const char *host_key = "Host:";
 
 void *thread(void *vargp);
 void doit(int connfd);
-void parse_uri(char *uri,char *hostname,char *path,int *port);
-void build_http_header(char *http_header,char *hostname,char *path,int port,rio_t *client_rio);
-int connect_endServer(char *hostname,int port,char *http_header);
+void build_http(rio_t *client_rio, char *hostname, char *path, char *port, char *httpinfo);
+void parse_url(char *url, char *hostname, char *path, char *port);
 
-int main(int argc,char **argv) {
-    long long listenfd,connfd;
-    socklen_t  clientlen;
-    char hostname[MAXLINE],port[MAXLINE];
+int main(int argc, char **argv) {
+    long long listenfd, connfd;
+    socklen_t clientlen;
+    char hostname[MAXLINE], port[MAXLINE];
     pthread_t tid;
-    struct sockaddr_storage clientaddr; /*generic sockaddr struct which is 28 Bytes.The same use as sockaddr*/
+    struct sockaddr_storage clientaddr;
 
     cache_init();
 
     if(argc != 2){
-        fprintf(stderr,"usage :%s <port> \n",argv[0]);
+        fprintf(stderr, "usage :%s <port>\n", argv[0]);
         exit(1);
     }
-    Signal(SIGPIPE,SIG_IGN);
+    Signal(SIGPIPE, SIG_IGN);
     listenfd = Open_listenfd(argv[1]);
-    while(1){
+    while(1) {
         clientlen = sizeof(clientaddr);
-        connfd = Accept(listenfd,(SA *)&clientaddr,&clientlen);
+        connfd = Accept(listenfd, (SA *)&clientaddr, &clientlen);
 
-        /*print accepted message*/
-        Getnameinfo((SA*)&clientaddr,clientlen,hostname,MAXLINE,port,MAXLINE,0);
-        printf("Accepted connection from (%s %s).\n",hostname,port);
+        Getnameinfo((SA*)&clientaddr, clientlen, hostname, MAXLINE, port, MAXLINE, 0);
+        printf("Accepted connection from (%s %s).\n", hostname, port);
 
-        /*concurrent request*/
-        Pthread_create(&tid,NULL,thread,(void *)connfd);
+        Pthread_create(&tid, NULL, thread, (void *)connfd);
     }
     return 0;
 }
 
-/*thread function*/
+/*
+ * thread function
+ */
 void *thread(void *vargp) {
     long long connfd = (long long)vargp;
-    Pthread_detach(pthread_self());
+    Pthread_detach(Pthread_self());
 
     doit(connfd);
 
@@ -66,141 +64,135 @@ void *thread(void *vargp) {
     return NULL;
 }
 
-/*handle the client HTTP transaction*/
+/*
+ * client http transaction
+ */
 void doit(int connfd) {
-    int end_serverfd; /*the end server file descriptor*/
+    char buf[MAXLINE], 
+         method[MAXLINE], 
+         url[MAXLINE], 
+         version[MAXLINE], 
+         url_store[MAXLINE], 
+         httpinfo[MAXLINE], 
+         hostname[MAXLINE], 
+         path[MAXLINE],
+         port[MAXLINE];
 
-    char buf[MAXLINE],method[MAXLINE],uri[MAXLINE],version[MAXLINE];
-    char endserver_http_header [MAXLINE];
+    rio_t client_rio, server_rio;
 
-    /*store the request line arguments*/
-    char hostname[MAXLINE],path[MAXLINE];
-    int port;
+    Rio_readinitb(&client_rio, connfd);
+    Rio_readlineb(&client_rio, buf, MAXLINE);
 
-    rio_t rio, server_rio;/*rio is client's rio,server_rio is endserver's rio*/
+    sscanf(buf, "%s %s %s", method, url, version);
+    strcpy(url_store, url);
 
-    Rio_readinitb(&rio,connfd);
-    Rio_readlineb(&rio,buf,MAXLINE);
-    sscanf(buf,"%s %s %s",method,uri,version); /*read the client request line*/
-
-    char url_store[100];
-    strcpy(url_store,uri);  /*store the original url */
-    if(strcasecmp(method,"GET")){
-        //printf("Proxy does not implement the method\n");
+    if (strcasecmp(method, "GET")){
+        printf("Proxy does not implement the method\n");
         return;
     }
 
-    int cache_index;
-    if((cache_index=cache_find(url_store))!=-1) { /*in cache then return the cache content*/
-         readerPre(cache_index);
-         Rio_writen(connfd,cache.cacheobjs[cache_index].cache_obj,strlen(cache.cacheobjs[cache_index].cache_obj));
-         readerAfter(cache_index);
-         cache_LRU(cache_index);
-         return;
+    if (cache_read(connfd, url_store)) {
+        printf("Cache hit\n");
+        return;
     }
 
-    /*parse the uri to get hostname,file path ,port*/
-    parse_uri(uri,hostname,path,&port);
+    parse_url(url, hostname, path, port);
+    build_http(&client_rio, hostname, path, port, httpinfo);
 
-    /*build the http header which will send to the end server*/
-    build_http_header(endserver_http_header,hostname,path,port,&rio);
-
-    /*connect to the end server*/
-    end_serverfd = connect_endServer(hostname,port,endserver_http_header);
-    if(end_serverfd<0){
+    int serverfd = Open_clientfd(hostname, port);
+    if(serverfd < 0){
         printf("connection failed\n");
         return;
     }
 
-    Rio_readinitb(&server_rio,end_serverfd);
+    Rio_readinitb(&server_rio, serverfd);
+    Rio_writen(serverfd, httpinfo, strlen(httpinfo));
 
-    /*write the http header to endserver*/
-    Rio_writen(end_serverfd,endserver_http_header,strlen(endserver_http_header));
-
-    /*receive message from end server and send to the client*/
     char cachebuf[MAX_OBJECT_SIZE];
-    int sizebuf = 0;
-    size_t n;
-    while((n=Rio_readlineb(&server_rio,buf,MAXLINE))!=0)
-    {
-        sizebuf+=n;
-        if(sizebuf < MAX_OBJECT_SIZE)  strcat(cachebuf,buf);
-        Rio_writen(connfd,buf,n);
+    size_t bufSize = 0, n = 0;
+    while ((n = Rio_readlineb(&server_rio, buf, MAXLINE)) != 0) {
+        bufSize += n;
+        if (bufSize < MAX_OBJECT_SIZE)  
+            strcat(cachebuf, buf);
+        Rio_writen(connfd, buf, n);
     }
 
-    Close(end_serverfd);
-
-    /*store it*/
-    if(sizebuf < MAX_OBJECT_SIZE){
-        cache_uri(url_store,cachebuf);
+    if(bufSize < MAX_OBJECT_SIZE){
+        cache_write(cachebuf, url_store);
     }
+
+    Close(serverfd);
 }
 
-void build_http_header(char *http_header,char *hostname,char *path,int port,rio_t *client_rio) {
-    char buf[MAXLINE],request_hdr[MAXLINE],other_hdr[MAXLINE],host_hdr[MAXLINE];
-    /*request line*/
-    sprintf(request_hdr,requestlint_hdr_format,path);
-    /*get other request header for client rio and change it */
-    while(Rio_readlineb(client_rio,buf,MAXLINE)>0) {
-        if(strcmp(buf,endof_hdr)==0) break;/*EOF*/
+/*
+ * get http info
+ */
+void build_http(rio_t *client_rio, char *hostname, char *path, char *port, char *httpinfo) {
+    char buf[MAXLINE], 
+         request_hdr[MAXLINE], 
+         other_hdr[MAXLINE], 
+         host_hdr[MAXLINE];
+    sprintf(request_hdr, requestlint_hdr_format, path);
+    
+    while (Rio_readlineb(client_rio, buf, MAXLINE) > 0) {
+        if(!strcmp(buf, endof_hdr)) {
+            strcat(other_hdr, endof_hdr);
+            break;
+        }
 
-        if(!strncasecmp(buf,host_key,strlen(host_key))) { /*Host:*/
-            strcpy(host_hdr,buf);
+        else if (!strncasecmp(buf, host_key, strlen(host_key))) {
+            strcpy(host_hdr, buf);
             continue;
         }
 
-        if(!strncasecmp(buf,connection_key,strlen(connection_key))
-                &&!strncasecmp(buf,proxy_connection_key,strlen(proxy_connection_key))
-                &&!strncasecmp(buf,user_agent_key,strlen(user_agent_key)))
-        {
-            strcat(other_hdr,buf);
+        else if (!strncasecmp(buf, connection_key, strlen(connection_key))
+              && !strncasecmp(buf, proxy_connection_key, strlen(proxy_connection_key))
+              && !strncasecmp(buf, user_agent_key, strlen(user_agent_key))) {
+            strcat(other_hdr, buf);
         }
     }
-    if(strlen(host_hdr)==0) {
-        sprintf(host_hdr,host_hdr_format,hostname);
+
+    if(strlen(host_hdr) == 0) {
+        sprintf(host_hdr, host_hdr_format, hostname);
     }
-    sprintf(http_header,"%s%s%s%s%s%s%s",
+    sprintf(httpinfo, "%s%s%s%s%s%s", 
             request_hdr,
             host_hdr,
             conn_hdr,
             prox_hdr,
             user_agent_hdr,
-            other_hdr,
-            endof_hdr);
-
-    return ;
-}
-/*Connect to the end server*/
-inline int connect_endServer(char *hostname,int port,char *http_header) {
-    char portStr[100];
-    sprintf(portStr,"%d",port);
-    return Open_clientfd(hostname,portStr);
+            other_hdr);
 }
 
-/*parse the uri to get hostname,file path ,port*/
-void parse_uri(char *uri,char *hostname,char *path,int *port) {
-    *port = 80;
-    char* pos = strstr(uri,"//");
-
-    pos = pos != NULL ? pos+2 : uri;
-
-    char * pos2 = strstr(pos,":");
-    if(pos2!=NULL) {
-        *pos2 = '\0';
-        sscanf(pos,"%s",hostname);
-        sscanf(pos2+1,"%d%s",port,path);
-    }
-    else {
-        pos2 = strstr(pos,"/");
-        if(pos2!=NULL) {
-            *pos2 = '\0';
-            sscanf(pos,"%s",hostname);
-            *pos2 = '/';
-            sscanf(pos2,"%s",path);
+/*
+ * parse the url
+ */
+void parse_url(char *url, char *hostname, char *path, char *port) {
+    char *pos = strstr(url, "//");
+    if (pos != NULL) {
+        char * pport = strstr(pos+2, ":");
+        if (pport != NULL) {
+            char * ppath = strstr(pport+1, "/");
+            strcpy(path, ppath);
+            *ppath = '\0';
+            strcpy(port, pport+1);
+            *pport = '\0';
         }
         else {
-            sscanf(pos,"%s",hostname);
+            char *ppath = strstr(pos+2, "/");
+            if (ppath != NULL) {
+                strcpy(path, ppath);
+                strcpy(port, "80");
+                *ppath = '\0';
+            }
         }
+        strcpy(hostname, pos+2);
     }
-    return;
+    else {
+        pos = strstr(url, "/");
+        if (pos != NULL) {
+            strcpy(path, pos);
+        }
+        strcpy(port, "80");
+    }
 }

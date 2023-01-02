@@ -1,130 +1,106 @@
+/*
+ * Name: Yuxuan Kuang
+ * ID: 2100013089
+ */
+
 #include "cache.h"
 extern Cache cache;
 
-/**************************************
- * Cache Functions
- **************************************/
-
+/*
+ * initialize the cache
+ */
 void cache_init() {
-    cache.cache_num = 0;
-    int i;
-    for(i=0;i<CACHE_OBJS_COUNT;i++){
-        cache.cacheobjs[i].LRU = 0;
-        cache.cacheobjs[i].isEmpty = 1;
-        Sem_init(&cache.cacheobjs[i].wmutex,0,1);
-        Sem_init(&cache.cacheobjs[i].rdcntmutex,0,1);
-        cache.cacheobjs[i].readCnt = 0;
+    cache.num_readers = 0;
+    Sem_init(&cache.writer, 0, 1);
+    Sem_init(&cache.mutex, 0, 1);
 
-        cache.cacheobjs[i].writeCnt = 0;
-        Sem_init(&cache.cacheobjs[i].wtcntMutex,0,1);
-        Sem_init(&cache.cacheobjs[i].queue,0,1);
+    for (int i = 0; i < MAX_CACHE_NUM; ++i) {
+        cache.cacheobjs[i].valid = 0;
+        cache.cacheobjs[i].time = 0;
+        memset(cache.cacheobjs[i].url, 0, sizeof(cache.cacheobjs[i].url));
+        memset(cache.cacheobjs[i].obj, 0, sizeof(cache.cacheobjs[i].obj));
     }
 }
 
-void readerPre(int i) {
-    P(&cache.cacheobjs[i].queue);
-    P(&cache.cacheobjs[i].rdcntmutex);
-    cache.cacheobjs[i].readCnt++;
-    if(cache.cacheobjs[i].readCnt==1) P(&cache.cacheobjs[i].wmutex);
-    V(&cache.cacheobjs[i].rdcntmutex);
-    V(&cache.cacheobjs[i].queue);
-}
-
-void readerAfter(int i) {
-    P(&cache.cacheobjs[i].rdcntmutex);
-    cache.cacheobjs[i].readCnt--;
-    if(cache.cacheobjs[i].readCnt==0) V(&cache.cacheobjs[i].wmutex);
-    V(&cache.cacheobjs[i].rdcntmutex);
-
-}
-
-void writePre(int i) {
-    P(&cache.cacheobjs[i].wtcntMutex);
-    cache.cacheobjs[i].writeCnt++;
-    if(cache.cacheobjs[i].writeCnt==1) P(&cache.cacheobjs[i].queue);
-    V(&cache.cacheobjs[i].wtcntMutex);
-    P(&cache.cacheobjs[i].wmutex);
-}
-
-void writeAfter(int i) {
-    V(&cache.cacheobjs[i].wmutex);
-    P(&cache.cacheobjs[i].wtcntMutex);
-    cache.cacheobjs[i].writeCnt--;
-    if(cache.cacheobjs[i].writeCnt==0) V(&cache.cacheobjs[i].queue);
-    V(&cache.cacheobjs[i].wtcntMutex);
-}
-
-/*find url is in the cache or not */
-int cache_find(char *url) {
-    int i;
-    for(i=0;i<CACHE_OBJS_COUNT;i++){
-        readerPre(i);
-        if((cache.cacheobjs[i].isEmpty==0) && (strcmp(url,cache.cacheobjs[i].cache_url)==0)) break;
-        readerAfter(i);
+/*
+ * before reading
+ */
+void lock() {
+    P(&cache.mutex);
+    if (cache.num_readers == 0) {
+        P(&cache.writer);
     }
-    if(i>=CACHE_OBJS_COUNT) return -1; /*can not find url in the cache*/
-    return i;
+    cache.num_readers++;
+    V(&cache.mutex);
 }
 
-/*find the empty cacheObj or which cacheObj should be evictioned*/
-int cache_eviction() {
-    int min = LRU_MAGIC_NUMBER;
-    int minindex = 0;
-    int i;
-    for(i=0; i<CACHE_OBJS_COUNT; i++)
-    {
-        readerPre(i);
-        if(cache.cacheobjs[i].isEmpty == 1){/*choose if cache block empty */
-            minindex = i;
-            readerAfter(i);
+/*
+ * after reading
+ */
+void unlock() {
+    P(&cache.mutex);
+    cache.num_readers--;
+    if (cache.num_readers == 0) {
+        V(&cache.writer);
+    }
+    V(&cache.mutex);
+}
+
+/*
+ * read the cache
+ */
+int cache_read(int fd, char *url) {
+    lock();
+    int isHit = 0;
+
+    for (int i = 0; i < MAX_CACHE_NUM; ++i) {
+        if (cache.cacheobjs[i].valid && strcmp(url, cache.cacheobjs[i].url) == 0) {
+            Rio_writen(fd, cache.cacheobjs[i].obj, strlen(cache.cacheobjs[i].obj));
+            cache.cacheobjs[i].time = 0;
+            isHit = 1;
+            break; 
+        }
+    }
+    for (int i = 0; i < MAX_CACHE_NUM; ++i) {
+        if (cache.cacheobjs[i].valid) {
+            cache.cacheobjs[i].time++;
+        }
+    }
+
+    unlock();
+
+    return isHit;
+}
+
+/*
+ * write the cache, using LRU
+ */
+void cache_write(char *buf, char *url) {
+    P(&cache.writer);
+
+    int pos = 0, M = -1;
+    for (int i = 0; i < MAX_CACHE_NUM; ++i) {
+        if (!cache.cacheobjs[i].valid) {
+            cache.cacheobjs[i].valid = 1;
+            pos = i;
             break;
         }
-        if(cache.cacheobjs[i].LRU< min){    /*if not empty choose the min LRU*/
-            minindex = i;
-            readerAfter(i);
-            continue;
+        else if (cache.cacheobjs[i].time > M) {
+            M = cache.cacheobjs[i].time;
+            pos = i;
         }
-        readerAfter(i);
     }
 
-    return minindex;
-}
-/*update the LRU number except the new cache one*/
-void cache_LRU(int index) {
+    cache.cacheobjs[pos].time = 0;
+    strcpy(cache.cacheobjs[pos].url, url);
+    strcpy(cache.cacheobjs[pos].obj, buf);
 
-    writePre(index);
-    cache.cacheobjs[index].LRU = LRU_MAGIC_NUMBER;
-    writeAfter(index);
-
-    int i;
-    for(i=0; i<index; i++) {
-        writePre(i);
-        if(cache.cacheobjs[i].isEmpty==0 && i!=index){
-            cache.cacheobjs[i].LRU--;
+    for (int i = 0; i < MAX_CACHE_NUM; ++i) {
+        if (cache.cacheobjs[i].valid) {
+            cache.cacheobjs[i].time++;
         }
-        writeAfter(i);
     }
-    i++;
-    for(; i<CACHE_OBJS_COUNT; i++) {
-        writePre(i);
-        if(cache.cacheobjs[i].isEmpty==0 && i!=index){
-            cache.cacheobjs[i].LRU--;
-        }
-        writeAfter(i);
-    }
-}
-/*cache the uri and content in cache*/
-void cache_uri(char *uri,char *buf) {
-    int i = cache_eviction();
 
-    writePre(i); /*writer P*/
-
-    strcpy(cache.cacheobjs[i].cache_obj,buf);
-    strcpy(cache.cacheobjs[i].cache_url,uri);
-    cache.cacheobjs[i].isEmpty = 0;
-
-    writeAfter(i); /*writer V*/
-
-    cache_LRU(i);
+    V(&cache.writer);
 }
 
